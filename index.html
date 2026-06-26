@@ -3,24 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Moldura - Encaixe Perfeito</title>
+<title>Moldura - Resolução 1080p</title>
 <style>
 * {margin: 0; padding: 0; box-sizing: border-box;}
 body {background: #000; height: 100vh; overflow: hidden; font-family: Arial, sans-serif;}
 
-/* Câmera ajustada EXATAMENTE para o espaço da moldura */
+/* Câmera: resolução nativa 1080p, encaixe exato na moldura */
 #camera {
   position: absolute;
-  top: 60%;          /* ⬅️ Posição vertical */
-  left: 15%;          /* ⬅️ Posição horizontal */
-  width: 100%;        /* ⬅️ Largura do espaço */
-  height: 100%;       /* ⬅️ Altura do espaço */
-  object-fit: cover; /* ⬅️ Preenche sem distorcer */
-  transform: scaleX(-1); /* espelha só frontal */
+  top: 24%;
+  left: 8%;
+  width: 84%;
+  height: 48%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  image-rendering: -webkit-optimize-contrast;
   image-rendering: high-quality;
-  filter: brightness(1.08) contrast(1.05) saturate(1.08);
+  filter: brightness(1.05) contrast(1.08) saturate(1.1);
 }
-/* Traseira: sem espelho */
 #camera.traseira {transform: scale(1);}
 
 #moldura {
@@ -75,15 +75,16 @@ button.gravando {
 <script>
 const camera = document.getElementById('camera');
 const canal = document.getElementById('canal');
-const ctxCanal = canal.getContext('2d');
+const ctxCanal = canal.getContext('2d', { willReadFrequently: true });
 const canvasFoto = document.getElementById('foto');
-const ctxFoto = canvasFoto.getContext('2d');
+const ctxFoto = canvasFoto.getContext('2d', { willReadFrequently: true });
 
 let camAtual = 'user';
 let gravando = false;
 let mediaRecorder;
 let blocos = [];
 
+// ✅ Resolução IGUAL ao modelo: 1080×1920 nativo
 function iniciarCamera(tipo) {
   if (camera.srcObject) {
     camera.srcObject.getTracks().forEach(trilha => trilha.stop());
@@ -91,9 +92,9 @@ function iniciarCamera(tipo) {
   navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: tipo,
-      width: {ideal: 1080, min: 720},
-      height: {ideal: 1920, min: 1280},
-      frameRate: {ideal: 24}
+      width: { ideal: 1080, min: 1080, max: 1920 },
+      height: { ideal: 1920, min: 1920, max: 2560 },
+      frameRate: { ideal: 30, min: 24 }
     },
     audio: true
   })
@@ -103,26 +104,26 @@ function iniciarCamera(tipo) {
     camera.classList.toggle('traseira', tipo === 'environment');
     desenharQuadro();
   })
-  .catch(() => alert('Permita câmera e microfone!'));
+  .catch(() => alert('Permita o uso da câmera e microfone!'));
 }
 
-// Desenha já com posição e tamanho corretos
+// Desenha mantendo resolução máxima e encaixe exato
 function desenharQuadro() {
   ctxCanal.clearRect(0, 0, 1080, 1920);
-  // Posição e tamanho IGUAL ao da tela
+  // Posição e tamanho fixos para a moldura
   ctxCanal.drawImage(camera, 86, 460, 908, 920, 0, 0, 1080, 1920);
 
-  // Suavização leve da pele
+  // Suavização leve sem perder nitidez
   const dados = ctxCanal.getImageData(0, 0, 1080, 1920);
   const pixels = dados.data;
   for (let i = 0; i < pixels.length; i += 4) {
-    pixels[i]     = Math.min(255, pixels[i] * 1.04);
+    pixels[i]     = Math.min(255, pixels[i] * 1.03);
     pixels[i + 1] = Math.min(255, pixels[i + 1] * 1.02);
     pixels[i + 2] = Math.min(255, pixels[i + 2] * 1.01);
   }
   ctxCanal.putImageData(dados, 0, 0);
 
-  // Coloca moldura por cima
+  // Coloca a moldura por cima
   ctxCanal.drawImage(document.getElementById('moldura'), 0, 0, 1080, 1920);
 
   if (!gravando) requestAnimationFrame(desenharQuadro);
@@ -134,22 +135,28 @@ function alternarCamera() {
 }
 
 function tirarFoto() {
+  ctxFoto.imageSmoothingEnabled = true;
+  ctxFoto.imageSmoothingQuality = 'high';
   ctxFoto.drawImage(canal, 0, 0);
   const link = document.createElement('a');
-  link.download = 'foto_maria_2anos.png';
-  link.href = canvasFoto.toDataURL('image/png', 0.95);
+  link.download = 'foto_com_moldura.png';
+  link.href = canvasFoto.toDataURL('image/png', 1.0);
   link.click();
 }
 
 function alternarGravacao() {
   if (!gravando) {
     blocos = [];
-    const streamGravacao = canal.captureStream(24);
+    const streamGravacao = canal.captureStream(30);
     try {
-      mediaRecorder = new MediaRecorder(streamGravacao, { mimeType: 'video/webm; codecs=vp8' });
+      mediaRecorder = new MediaRecorder(streamGravacao, {
+        mimeType: 'video/webm; codecs=vp9',
+        videoBitsPerSecond: 5000000 // mesma taxa de qualidade do modelo
+      });
     } catch (e) {
-      alert('Gravação não suportada neste aparelho.');
-      return;
+      mediaRecorder = new MediaRecorder(streamGravacao, {
+        mimeType: 'video/webm; codecs=vp8'
+      });
     }
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) blocos.push(e.data); };
     mediaRecorder.onstop = () => {
@@ -157,7 +164,7 @@ function alternarGravacao() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'video_maria_2anos.webm';
+      link.download = 'video_com_moldura.webm';
       link.click();
       URL.revokeObjectURL(url);
     };
