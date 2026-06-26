@@ -2,104 +2,180 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<title>Moldura Foto e Vídeo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Moldura - Encaixe Perfeito</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#000;height:100vh;overflow:hidden;font-family:Arial}
-#camera{width:100%;height:100vh;object-fit:contain;transform:scaleX(-1) scale(0.9);transform-origin:center;image-rendering:high-quality;filter:brightness(1.08) contrast(1.05) saturate(1.1)}
-#camera.traseira{transform:scale(0.9)}
-#moldura{position:absolute;top:0;left:0;width:100%;height:100%;z-index:15;pointer-events:none}
-.botoes{position:absolute;bottom:30px;width:100%;text-align:center;z-index:20}
-button{padding:12px 16px;font-size:15px;border-radius:30px;border:none;background:#ff69b4;color:white;margin:0 5px;font-weight:bold}
-button.gravando{background:#e53935;animation:pulsar 1.2s infinite}
-@keyframes pulsar{0%{opacity:1}50%{opacity:0.7}100%{opacity:1}}
+* {margin: 0; padding: 0; box-sizing: border-box;}
+body {background: #000; height: 100vh; overflow: hidden; font-family: Arial, sans-serif;}
+
+/* Câmera ajustada EXATAMENTE para o espaço da moldura */
+#camera {
+  position: absolute;
+  top: 24%;          /* ⬅️ Posição vertical */
+  left: 8%;          /* ⬅️ Posição horizontal */
+  width: 84%;        /* ⬅️ Largura do espaço */
+  height: 48%;       /* ⬅️ Altura do espaço */
+  object-fit: cover; /* ⬅️ Preenche sem distorcer */
+  transform: scaleX(-1); /* espelha só frontal */
+  image-rendering: high-quality;
+  filter: brightness(1.08) contrast(1.05) saturate(1.08);
+}
+/* Traseira: sem espelho */
+#camera.traseira {transform: scale(1);}
+
+#moldura {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.botoes {
+  position: absolute;
+  bottom: 4%;
+  width: 100%;
+  text-align: center;
+  z-index: 20;
+}
+
+button {
+  padding: 12px 20px;
+  font-size: 15px;
+  border: none;
+  border-radius: 30px;
+  background: #ff69b4;
+  color: white;
+  margin: 0 6px;
+  font-weight: bold;
+}
+button.gravando {
+  background: #e53935;
+  animation: piscar 1.2s infinite;
+}
+@keyframes piscar {0%{opacity:1;} 50%{opacity:0.7;} 100%{opacity:1;}}
+
+#canal, #foto {display: none;}
 </style>
 </head>
 <body>
+
 <video id="camera" autoplay playsinline muted></video>
-<canvas id="canal" width="1080" height="1920" style="display:none"></canvas>
+<canvas id="canal" width="1080" height="1920"></canvas>
 <img id="moldura" src="moldura.png" alt="Moldura">
+
 <div class="botoes">
-<button onclick="tirarFoto()">📸 Foto</button>
-<button id="btnGravar" onclick="alternarGravacao()">🎥 Gravar</button>
-<button onclick="alternarCamera()">🔄 Virar</button>
+  <button onclick="tirarFoto()">📸 Foto</button>
+  <button id="btnGravar" onclick="alternarGravacao()">🎥 Gravar</button>
+  <button onclick="alternarCamera()">🔄 Virar</button>
 </div>
-<canvas id="foto" width="1080" height="1920" style="display:none"></canvas>
+
+<canvas id="foto" width="1080" height="1920"></canvas>
 
 <script>
 const camera = document.getElementById('camera');
 const canal = document.getElementById('canal');
-const ctxCanal = canal.getContext('2d', {willReadFrequently:true});
-const canvas = document.getElementById('foto');
-const ctx = canvas.getContext('2d', {willReadFrequently:true});
-let camAtual = 'user', gravando = false, mediaRecorder, chunks=[];
+const ctxCanal = canal.getContext('2d');
+const canvasFoto = document.getElementById('foto');
+const ctxFoto = canvasFoto.getContext('2d');
 
-function iniciarCamera(tipo){
-  if(camera.srcObject) camera.srcObject.getTracks().forEach(t=>t.stop());
+let camAtual = 'user';
+let gravando = false;
+let mediaRecorder;
+let blocos = [];
+
+function iniciarCamera(tipo) {
+  if (camera.srcObject) {
+    camera.srcObject.getTracks().forEach(trilha => trilha.stop());
+  }
   navigator.mediaDevices.getUserMedia({
-    video:{facingMode:tipo,width:{ideal:1080,min:720},height:{ideal:1920,min:1280},frameRate:{ideal:30}},
-    audio:true
+    video: {
+      facingMode: tipo,
+      width: {ideal: 1080, min: 720},
+      height: {ideal: 1920, min: 1280},
+      frameRate: {ideal: 24}
+    },
+    audio: true
   })
-  .then(stream=>{camera.srcObject=stream;camera.play();camera.classList.toggle('traseira',tipo==='environment');iniciarCanal();})
-  .catch(()=>alert('Permita câmera e microfone!'));
+  .then(stream => {
+    camera.srcObject = stream;
+    camera.play();
+    camera.classList.toggle('traseira', tipo === 'environment');
+    desenharQuadro();
+  })
+  .catch(() => alert('Permita câmera e microfone!'));
 }
 
-function iniciarCanal(){
-  if(window.atualizarCanal) cancelAnimationFrame(window.atualizarCanal);
-  function desenhar(){
-    ctxCanal.clearRect(0,0,1080,1920);
-    ctxCanal.drawImage(camera,60,160,960,1600,0,0,1080,1920);
-    aplicarSuavizacao(ctxCanal);
-    ctxCanal.drawImage(document.getElementById('moldura'),0,0,1080,1920);
-    window.atualizarCanal = requestAnimationFrame(desenhar);
+// Desenha já com posição e tamanho corretos
+function desenharQuadro() {
+  ctxCanal.clearRect(0, 0, 1080, 1920);
+  // Posição e tamanho IGUAL ao da tela
+  ctxCanal.drawImage(camera, 86, 460, 908, 920, 0, 0, 1080, 1920);
+
+  // Suavização leve da pele
+  const dados = ctxCanal.getImageData(0, 0, 1080, 1920);
+  const pixels = dados.data;
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i]     = Math.min(255, pixels[i] * 1.04);
+    pixels[i + 1] = Math.min(255, pixels[i + 1] * 1.02);
+    pixels[i + 2] = Math.min(255, pixels[i + 2] * 1.01);
   }
-  desenhar();
+  ctxCanal.putImageData(dados, 0, 0);
+
+  // Coloca moldura por cima
+  ctxCanal.drawImage(document.getElementById('moldura'), 0, 0, 1080, 1920);
+
+  if (!gravando) requestAnimationFrame(desenharQuadro);
 }
 
-function aplicarSuavizacao(contexto){
-  const imgData = contexto.getImageData(0,0,1080,1920);
-  const dados = imgData.data;
-  for(let i=0;i<dados.length;i+=4){
-    const r=dados[i],g=dados[i+1],b=dados[i+2];
-    dados[i] = Math.min(255, r*1.05); dados[i+1] = Math.min(255, g*1.03); dados[i+2] = Math.min(255, b*1.02);
-  }
-  contexto.putImageData(imgData,0,0);
+function alternarCamera() {
+  camAtual = camAtual === 'user' ? 'environment' : 'user';
+  iniciarCamera(camAtual);
 }
 
-function alternarCamera(){camAtual=camAtual==='user'?'environment':'user';iniciarCamera(camAtual);}
-window.onload=()=>iniciarCamera(camAtual);
-
-function tirarFoto(){
-  ctx.drawImage(canal,0,0);
-  const link=document.createElement('a');
-  link.download='foto_moldura.png';
-  link.href=canvas.toDataURL('image/png',1.0);
+function tirarFoto() {
+  ctxFoto.drawImage(canal, 0, 0);
+  const link = document.createElement('a');
+  link.download = 'foto_maria_2anos.png';
+  link.href = canvasFoto.toDataURL('image/png', 0.95);
   link.click();
 }
 
-function alternarGravacao(){
-  if(!gravando){
-    chunks=[];
-    const stream = canal.captureStream(30);
-    mediaRecorder = new MediaRecorder(stream,{mimeType:'video/webm; codecs=vp9'});
-    mediaRecorder.ondataavailable=e=>chunks.push(e.data);
-    mediaRecorder.onstop=()=>{
-      const blob=new Blob(chunks,{type:'video/webm'});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');
-      a.href=url;a.download='video_moldura.webm';a.click();
+function alternarGravacao() {
+  if (!gravando) {
+    blocos = [];
+    const streamGravacao = canal.captureStream(24);
+    try {
+      mediaRecorder = new MediaRecorder(streamGravacao, { mimeType: 'video/webm; codecs=vp8' });
+    } catch (e) {
+      alert('Gravação não suportada neste aparelho.');
+      return;
+    }
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) blocos.push(e.data); };
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(blocos, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'video_maria_2anos.webm';
+      link.click();
       URL.revokeObjectURL(url);
     };
-    mediaRecorder.start();
-    gravando=true;document.getElementById('btnGravar').textContent='⏹️ Parar';
+    mediaRecorder.start(1000);
+    gravando = true;
+    document.getElementById('btnGravar').textContent = '⏹️ Parar';
     document.getElementById('btnGravar').classList.add('gravando');
-  }else{
-    mediaRecorder.stop();gravando=false;
-    document.getElementById('btnGravar').textContent='🎥 Gravar';
+  } else {
+    mediaRecorder.stop();
+    gravando = false;
+    document.getElementById('btnGravar').textContent = '🎥 Gravar';
     document.getElementById('btnGravar').classList.remove('gravando');
+    desenharQuadro();
   }
 }
+
+window.addEventListener('load', () => iniciarCamera(camAtual));
 </script>
+
 </body>
 </html>
