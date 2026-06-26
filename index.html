@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Moldura - Tela Inteira 1080p</title>
+<title>Moldura - Frontal / Traseira</title>
 <style>
 * {margin: 0; padding: 0; box-sizing: border-box;}
 html, body {
@@ -14,25 +14,22 @@ html, body {
   font-family: Arial, sans-serif;
 }
 
-/* Câmera ocupa TELA INTEIRA, resolução máxima */
+/* Câmera em tela inteira */
 #camera {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  object-fit: cover; /* Preenche toda a tela sem distorcer */
-  transform: scaleX(-1); /* Espelha só a frontal */
-  image-rendering: -webkit-optimize-contrast;
+  object-fit: cover;
+  transform: scaleX(-1);
   image-rendering: high-quality;
   filter: brightness(1.05) contrast(1.08) saturate(1.1);
 }
-/* Traseira: sem espelhamento */
 #camera.traseira {
   transform: scale(1);
 }
 
-/* Moldura fica por cima, tamanho total */
 #moldura {
   position: fixed;
   top: 0;
@@ -43,7 +40,6 @@ html, body {
   pointer-events: none;
 }
 
-/* Botões na parte inferior */
 .botoes {
   position: fixed;
   bottom: 5%;
@@ -54,13 +50,13 @@ html, body {
 }
 
 button {
-  padding: 12px 22px;
-  font-size: 16px;
+  padding: 12px 20px;
+  font-size: 15px;
   border: none;
   border-radius: 30px;
   background: #ff69b4;
   color: white;
-  margin: 0 8px;
+  margin: 0 6px;
   font-weight: bold;
 }
 button.gravando {
@@ -85,7 +81,7 @@ button.gravando {
 <div class="botoes">
   <button onclick="tirarFoto()">📸 Foto</button>
   <button id="btnGravar" onclick="alternarGravacao()">🎥 Gravar</button>
-  <button onclick="alternarCamera()">🔄 Virar</button>
+  <button id="btnCamera" onclick="alternarCamera()">📷 Frontal</button>
 </div>
 
 <canvas id="foto" width="1080" height="1920"></canvas>
@@ -96,18 +92,18 @@ const canal = document.getElementById('canal');
 const ctxCanal = canal.getContext('2d', { willReadFrequently: true });
 const canvasFoto = document.getElementById('foto');
 const ctxFoto = canvasFoto.getContext('2d', { willReadFrequently: true });
+const btnCamera = document.getElementById('btnCamera');
 
 let camAtual = 'user';
 let gravando = false;
 let mediaRecorder;
 let blocos = [];
 
-// ✅ Resolução exata igual ao modelo: 1080×1920
+// Resolução igual ao modelo: 1080×1920
 function iniciarCamera(tipo) {
   if (camera.srcObject) {
     camera.srcObject.getTracks().forEach(trilha => trilha.stop());
   }
-
   navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: tipo,
@@ -121,18 +117,18 @@ function iniciarCamera(tipo) {
     camera.srcObject = stream;
     camera.play();
     camera.classList.toggle('traseira', tipo === 'environment');
+    // Atualiza o texto do botão
+    btnCamera.textContent = tipo === 'user' ? '📷 Frontal' : '📷 Traseira';
     desenharQuadro();
   })
   .catch(() => alert('⚠️ Permita acesso à câmera e microfone!'));
 }
 
-// Desenha mantendo proporção e resolução
 function desenharQuadro() {
   ctxCanal.clearRect(0, 0, 1080, 1920);
-  // Ajuste para encaixar perfeitamente na área vazia da moldura
   ctxCanal.drawImage(camera, 0, 0, 1080, 1920, 0, 0, 1080, 1920);
 
-  // Suavização leve sem perder nitidez
+  // Suavização leve da pele
   const dados = ctxCanal.getImageData(0, 0, 1080, 1920);
   const pixels = dados.data;
   for (let i = 0; i < pixels.length; i += 4) {
@@ -142,19 +138,16 @@ function desenharQuadro() {
   }
   ctxCanal.putImageData(dados, 0, 0);
 
-  // Coloca a moldura por cima
   ctxCanal.drawImage(document.getElementById('moldura'), 0, 0, 1080, 1920);
-
   if (!gravando) requestAnimationFrame(desenharQuadro);
 }
 
-// Troca entre frontal e traseira
+// Troca de câmera e altera o texto do botão
 function alternarCamera() {
   camAtual = camAtual === 'user' ? 'environment' : 'user';
   iniciarCamera(camAtual);
 }
 
-// Tirar foto com qualidade máxima
 function tirarFoto() {
   ctxFoto.imageSmoothingEnabled = true;
   ctxFoto.imageSmoothingQuality = 'high';
@@ -165,7 +158,6 @@ function tirarFoto() {
   link.click();
 }
 
-// Gravar vídeo com qualidade igual ao modelo
 function alternarGravacao() {
   if (!gravando) {
     blocos = [];
@@ -176,9 +168,7 @@ function alternarGravacao() {
         videoBitsPerSecond: 5000000
       });
     } catch (e) {
-      mediaRecorder = new MediaRecorder(streamGravacao, {
-        mimeType: 'video/webm; codecs=vp8'
-      });
+      mediaRecorder = new MediaRecorder(streamGravacao, { mimeType: 'video/webm; codecs=vp8' });
     }
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) blocos.push(e.data); };
     mediaRecorder.onstop = () => {
