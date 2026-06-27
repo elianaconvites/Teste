@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Moldura - Foto e Vídeo</title>
+<title>Moldura - Resolução Correta</title>
 <style>
 * {margin: 0; padding: 0; box-sizing: border-box;}
 html, body {
@@ -22,11 +22,10 @@ html, body {
   width: 100vw;
   height: 100vh;
   object-fit: cover;
-  transform: scaleX(-1); /* Espelha só a frontal */
+  transform: scaleX(-1);
   image-rendering: high-quality;
   filter: brightness(1.05) contrast(1.08) saturate(1.1);
 }
-/* Traseira sem espelho */
 #camera.traseira {
   transform: scale(1);
 }
@@ -76,6 +75,7 @@ button.gravando {
 <body>
 
 <video id="camera" autoplay playsinline muted></video>
+<!-- Canal com resolução FIXA 1080×1920 para gravação -->
 <canvas id="canal" width="1080" height="1920"></canvas>
 <img id="moldura" src="moldura.png" alt="Moldura">
 
@@ -95,10 +95,9 @@ const canvasFoto = document.getElementById('foto');
 const ctxFoto = canvasFoto.getContext('2d', { willReadFrequently: true });
 const btnCamera = document.getElementById('btnCamera');
 
-let camAtual = 'user'; // começa na FRONTAL
+let camAtual = 'user';
 let gravando = false, mediaRecorder, blocos = [];
 
-// ✅ Configuração simples e compatível
 function iniciarCamera(tipo) {
   if (camera.srcObject) {
     camera.srcObject.getTracks().forEach(t => t.stop());
@@ -117,28 +116,45 @@ function iniciarCamera(tipo) {
     btnCamera.textContent = tipo === 'user' ? '📷 Traseira' : '📷 Frontal';
     desenharQuadro();
   })
-  .catch(err => {
-    console.log('Erro:', err);
-    alert('⚠️ Permita acesso à câmera e recarregue a página!');
-  });
+  .catch(() => alert('Permita acesso à câmera e microfone!'));
 }
 
 function desenharQuadro() {
   if (!camera.srcObject) return;
   ctxCanal.clearRect(0, 0, 1080, 1920);
-  ctxCanal.drawImage(camera, 0, 0, 1080, 1920, 0, 0, 1080, 1920);
+  
+  // Desenha a câmera ajustada para caber exatamente nos 1080×1920
+  const proporcaoTela = camera.videoWidth / camera.videoHeight;
+  const proporcaoAlvo = 1080 / 1920;
+  let largura, altura, x, y;
 
-  // ✅ SUAVIZAÇÃO MELHORADA DA PELE
+  if (proporcaoTela > proporcaoAlvo) {
+    altura = 1920;
+    largura = altura * proporcaoTela;
+    x = (1080 - largura) / 2;
+    y = 0;
+  } else {
+    largura = 1080;
+    altura = largura / proporcaoTela;
+    x = 0;
+    y = (1920 - altura) / 2;
+  }
+
+  ctxCanal.drawImage(camera, x, y, largura, altura);
+
+  // ✅ Suavização da pele ajustada
   const dados = ctxCanal.getImageData(0, 0, 1080, 1920);
   const pixels = dados.data;
   for (let i = 0; i < pixels.length; i += 4) {
-    pixels[i]     = Math.min(255, pixels[i] * 1.06);   // Clareia mais
-    pixels[i + 1] = Math.min(255, pixels[i + 1] * 1.05); // Suaviza tom
-    pixels[i + 2] = Math.min(255, pixels[i + 2] * 1.04); // Ajusta cor
+    pixels[i]     = Math.min(255, pixels[i] * 1.06);
+    pixels[i + 1] = Math.min(255, pixels[i + 1] * 1.05);
+    pixels[i + 2] = Math.min(255, pixels[i + 2] * 1.04);
   }
   ctxCanal.putImageData(dados, 0, 0);
 
+  // Coloca a moldura por cima
   ctxCanal.drawImage(document.getElementById('moldura'), 0, 0, 1080, 1920);
+
   if (!gravando) requestAnimationFrame(desenharQuadro);
 }
 
@@ -149,29 +165,42 @@ function alternarCamera() {
 
 function tirarFoto() {
   if (!camera.srcObject) return;
-  ctxFoto.imageSmoothingEnabled = true;
-  ctxFoto.imageSmoothingQuality = 'high';
   ctxFoto.drawImage(canal, 0, 0);
   const link = document.createElement('a');
   link.download = 'foto_moldura.png';
-  link.href = canvasFoto.toDataURL('image/png', 1.0);
+  link.href = canvasFoto.toDataURL('image/png', 0.95);
   link.click();
 }
 
+// ✅ Gravação com resolução e qualidade fixas
 function alternarGravacao() {
   if (!camera.srcObject) return;
+
   if (!gravando) {
     blocos = [];
     const streamGravacao = canal.captureStream(30);
+
     try {
       mediaRecorder = new MediaRecorder(streamGravacao, {
         mimeType: 'video/webm; codecs=vp9',
-        videoBitsPerSecond: 5000000
+        videoBitsPerSecond: 6000000 // 6 Mbps = qualidade alta
       });
     } catch {
-      mediaRecorder = new MediaRecorder(streamGravacao, { mimeType: 'video/webm; codecs=vp8' });
+      try {
+        mediaRecorder = new MediaRecorder(streamGravacao, {
+          mimeType: 'video/webm; codecs=vp8',
+          videoBitsPerSecond: 5000000
+        });
+      } catch {
+        alert('Gravação não suportada neste aparelho.');
+        return;
+      }
     }
-    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) blocos.push(e.data); };
+
+    mediaRecorder.ondataavailable = e => {
+      if (e.data.size > 0) blocos.push(e.data);
+    };
+
     mediaRecorder.onstop = () => {
       const blob = new Blob(blocos, { type: 'video/webm' });
       const url = URL.createObjectURL(blob);
@@ -181,10 +210,12 @@ function alternarGravacao() {
       link.click();
       URL.revokeObjectURL(url);
     };
+
     mediaRecorder.start(1000);
     gravando = true;
     document.getElementById('btnGravar').textContent = '⏹️ Parar';
     document.getElementById('btnGravar').classList.add('gravando');
+
   } else {
     mediaRecorder.stop();
     gravando = false;
