@@ -2,21 +2,23 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Moldura — Câmera Corrigida</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Moldura — Vídeo MP4 Correto</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:Arial,sans-serif}
 
-#video{
+#camera{
   position:fixed;top:0;left:0;
   width:100vw;height:100vh;
   object-fit:cover;
   transform:scaleX(-1);
+  image-rendering:high-quality;
+  filter:brightness(1.05) contrast(1.08) saturate(1.1)
 }
-#video.traseira{transform:none}
+#camera.traseira{transform:none}
 
-#overlay{
+#moldura{
   position:fixed;top:0;left:0;
   width:100vw;height:100vh;
   z-index:10;pointer-events:none
@@ -30,125 +32,128 @@ button{
   padding:12px 20px;font-size:15px;border:none;border-radius:30px;
   background:#ff69b4;color:#fff;margin:0 6px;font-weight:bold
 }
-button:disabled{background:#888}
+button.gravando{background:#e53935;animation:piscar 1.2s infinite}
+@keyframes piscar{0%{opacity:1}50%{opacity:.7}100%{opacity:1}}
 
-#canvas,#recordingCanvas{display:none}
-#photo-preview, #video-preview-container{display:none;position:fixed;inset:0;background:#000c;align-items:center;justify-content:center;flex-direction:column;gap:10px;z-index:30}
-#loading-message,#error-message,#bandwidth-warning,#instructions,#video-instructions{position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#fff;color:#000;padding:8px 14px;border-radius:20px;z-index:40;display:none;font-size:14px}
-#recording-indicator{position:fixed;top:12px;right:15px;color:#f55;font-weight:bold;z-index:40;display:none}
-#theme-toggle{position:fixed;top:12px;left:15px;z-index:40}
+#canal, #foto{display:none}
 </style>
 </head>
 <body>
 
-<button id="theme-toggle">☀️</button>
-<div id="bandwidth-warning">Conexão lenta — qualidade reduzida</div>
-<div id="loading-message">Carregando…</div>
-<div id="error-message"></div>
-<div id="instructions">📱 No iPhone: aperte e segure a foto/vídeo → Salvar</div>
-<div id="video-instructions">📱 Vídeo: aperte e segure → Salvar como vídeo</div>
-<div id="recording-indicator"></div>
-
-<video id="video" autoplay playsinline muted></video>
-<img id="overlay" src="moldura.png" alt="Moldura">
-<canvas id="canvas"></canvas>
-<canvas id="recordingCanvas"></canvas>
+<video id="camera" autoplay playsinline muted></video>
+<canvas id="canal" width="1080" height="1920"></canvas>
+<img id="moldura" src="moldura.png" alt="Moldura">
 
 <div class="botoes">
-  <button id="capture">📸 Foto</button>
-  <button id="switch-camera">📷 Traseira</button>
-  <button id="start-recording">🎥 Gravar</button>
-  <button id="stop-recording" style="display:none">⏹️ Parar</button>
+  <button onclick="tirarFoto()">📸 Foto</button>
+  <button id="btnGravar" onclick="alternarGravacao()">🎥 Gravar</button>
+  <button id="btnCamera" onclick="alternarCamera()">📷 Traseira</button>
 </div>
 
-<div id="photo-preview">
-  <img id="photo-img" style="max-width:90%;max-height:70vh">
-  <div>
-    <button id="save-btn">💾 Salvar</button>
-    <button id="retry-btn">🔄 Voltar</button>
-  </div>
-</div>
-
-<div id="video-preview-container">
-  <video id="video-preview" controls style="max-width:90%;max-height:70vh"></video>
-  <button id="save-video-btn">💾 Salvar Vídeo</button>
-</div>
+<canvas id="foto" width="1080" height="1920"></canvas>
 
 <script>
-class BandwidthDetector{
-  constructor(){this.isSlow=false;this.check()}
-  check(){if(!navigator.connection)return;const c=navigator.connection;this.isSlow=/2g|3g/.test(c.effectiveType)||c.saveData;document.getElementById('bandwidth-warning').style.display=this.isSlow?'block':'none';c.addEventListener('change',()=>{this.isSlow=/2g|3g/.test(c.effectiveType)||c.saveData;document.getElementById('bandwidth-warning').style.display=this.isSlow?'block':'none'})}
-  getSettings(){return this.isSlow?{w:480,h:360,fps:15}:{w:1080,h:1920,fps:24}}
-  quality(){return this.isSlow?0.7:0.92}
-}
+const camera = document.getElementById('camera');
+const canal = document.getElementById('canal');
+const ctxCanal = canal.getContext('2d', {willReadFrequently:true});
+const canvasFoto = document.getElementById('foto');
+const ctxFoto = canvasFoto.getContext('2d', {willReadFrequently:true});
+const btnCamera = document.getElementById('btnCamera');
 
-class ThemeManager{
-  constructor(){this.dark=localStorage.getItem('dm')==='true'||(!localStorage.getItem('dm')&&window.matchMedia('(prefers-color-scheme:dark)').matches);this.apply()}
-  apply(){document.body.className=this.dark?'dark-mode':'light-mode';document.getElementById('theme-toggle').textContent=this.dark?'🌙':'☀️'}
-  toggle(){this.dark=!this.dark;localStorage.setItem('dm',this.dark);this.apply()}
-}
+let camAtual = 'user';
+let gravando = false, mediaRecorder = null, blocos = [];
 
-const bw=new BandwidthDetector();
-const tm=new ThemeManager();
-const v=document.getElementById('video');
-const overlay=document.getElementById('overlay');
-const canvas=document.getElementById('canvas');
-const ctx=canvas.getContext('2d');
-const switchBtn=document.getElementById('switch-camera');
-const captureBtn=document.getElementById('capture');
-const startRec=document.getElementById('start-recording');
-const stopRec=document.getElementById('stop-recording');
-const recInd=document.getElementById('recording-indicator');
-const recCanvas=document.getElementById('recordingCanvas');
-const recCtx=recCanvas.getContext('2d');
-const isIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-let front=true,stream=null,changing=false,recording=false,rec=null,chunks=[],timer=null;
-
-function showLoading(){document.getElementById('loading-message').style.display='block'}
-function hideLoading(){document.getElementById('loading-message').style.display='none'}
-function err(msg){const e=document.getElementById('error-message');e.textContent=msg;e.style.display='block'}
-
-// ✅ INICIO DE CÂMERA CORRIGIDO — FUNCIONA FRONTAL E TRASEIRA
-async function startCam(){
-  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
-  const modo=front?'user':'environment';
-  const s=bw.getSettings();
-  let ok=false;
-  for(let tent of [
-    {video:{facingMode:{exact:modo},width:{ideal:s.w},height:{ideal:s.h}},audio:true},
-    {video:{facingMode:modo},audio:true},
-    {video:true,audio:true}
-  ]){
-    try{
-      const p=Promise.race([
-        navigator.mediaDevices.getUserMedia(tent),
-        new Promise((_,rej)=>setTimeout(()=>rej('t'),7000))
-      ]);
-      stream=await p;ok=true;break
-    }catch(e){/*tenta próxima*/}
+function iniciarCamera(tipo){
+  if(camera.srcObject){
+    camera.srcObject.getTracks().forEach(trilha=>trilha.stop());
+    camera.srcObject=null;
   }
-  if(!ok){err('Não foi possível acessar câmera');changing=false;return}
-  v.srcObject=stream;v.classList.toggle('traseira',!front);switchBtn.textContent=front?'📷 Traseira':'📷 Frontal';
-  document.getElementById('error-message').style.display='none';changing=false
+  navigator.mediaDevices.getUserMedia({video:{facingMode:tipo}, audio:true})
+  .then(stream=>{
+    camera.srcObject = stream; camera.play();
+    camera.classList.toggle('traseira', tipo==='environment');
+    btnCamera.textContent = tipo==='user' ? '📷 Traseira' : '📷 Frontal';
+    desenharQuadro();
+  })
+  .catch(()=>alert('⚠️ Permita câmera + microfone!'));
 }
 
-switchBtn.onclick=async()=>{if(changing||!stream)return;changing=true;switchBtn.disabled=true;showLoading();front=!front;await startCam();hideLoading();switchBtn.disabled=false};
+function desenharQuadro(){
+  if(!camera.srcObject) return;
+  ctxCanal.clearRect(0,0,1080,1920);
+  ctxCanal.drawImage(camera,0,0,1080,1920);
 
-captureBtn.onclick=()=>{if(!stream)return;const t=stream.getVideoTracks()[0];const st=t.getSettings();canvas.width=st.width;canvas.height=st.height;ctx.clearRect(0,0,st.width,st.height);if(front){ctx.translate(st.width,0);ctx.scale(-1,1)}ctx.drawImage(v,0,0,st.width,st.height);ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(overlay,0,0,st.width,st.height);const d=canvas.toDataURL('image/jpeg',bw.quality());document.getElementById('photo-img').src=d;document.getElementById('photo-preview').style.display='flex';if(isIOS)document.getElementById('instructions').style.display='block'};
+  // Suavização suave
+  const dados = ctxCanal.getImageData(0,0,1080,1920);
+  const p = dados.data;
+  for(let i=0;i<p.length;i+=4){
+    p[i]   = Math.min(255, p[i] * 1.06);
+    p[i+1] = Math.min(255, p[i+1] * 1.05);
+    p[i+2] = Math.min(255, p[i+2] * 1.04);
+  }
+  ctxCanal.putImageData(dados,0,0);
+  ctxCanal.drawImage(document.getElementById('moldura'),0,0,1080,1920);
+  if(!gravando) requestAnimationFrame(desenharQuadro);
+}
 
-document.getElementById('save-btn').onclick=()=>{const a=document.createElement('a');a.href=document.getElementById('photo-img').src;a.download='foto-moldura.jpg';a.click()};
-document.getElementById('retry-btn').onclick=()=>{document.getElementById('photo-preview').style.display='none';document.getElementById('instructions').style.display='none'};
+function alternarCamera(){
+  camAtual = camAtual==='user' ? 'environment' : 'user';
+  iniciarCamera(camAtual);
+}
 
-// ✅ GRAVAÇÃO SEM SERVIDOR EXTERNO — SÓ LOCAL
-function stopRecAll(){recording=false;if(rec&&rec.state==='recording')rec.stop();clearInterval(timer);recInd.style.display='none';startRec.style.display='inline';stopRec.style.display='none'}
+function tirarFoto(){
+  if(!camera.srcObject) return;
+  ctxFoto.drawImage(canal,0,0);
+  const link=document.createElement('a');
+  link.download='foto_moldura.png';
+  link.href=canvasFoto.toDataURL('image/png',0.95);
+  link.click();
+}
 
-startRec.onclick=()=>{if(!stream||recording)return;recording=true;chunks=[];const fps=bw.getSettings().fps;recCanvas.width=1080;recCanvas.height=1920;const str=recCanvas.captureStream(fps);const cm=new MediaStream();str.getVideoTracks().forEach(x=>cm.addTrack(x));stream.getAudioTracks()[0]&&cm.addTrack(stream.getAudioTracks()[0]);try{rec=new MediaRecorder(cm,{mimeType:'video/webm;codecs=vp8',videoBitsPerSecond:4000000})}catch{rec=new MediaRecorder(cm)}rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};rec.onstop=()=>{const b=new Blob(chunks,{type:'video/webm'});const u=URL.createObjectURL(b);document.getElementById('video-preview').src=u;document.getElementById('video-preview-container').style.display='flex';const a=document.createElement('a');a.href=u;a.download='video-moldura.webm';a.click();URL.revokeObjectURL(u)};rec.start();startRec.style.display='none';stopRec.style.display='inline';recInd.style.display='block';let seg=0;timer=setInterval(()=>{seg++;const m=String(Math.floor(seg/60)).padStart(2,'0'),s=String(seg%60).padStart(2,'0');recInd.textContent=`🔴 ${m}:${s}`},1000);};
+// ✅ GRAVAÇÃO COM FORMATO MP4 / H.264 — UNIVERSAL
+function alternarGravacao(){
+  if(!camera.srcObject) return;
+  if(!gravando){
+    blocos=[];
+    const stream = canal.captureStream(24);
+    try{
+      // Formato mais compatível com MP4
+      mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/mp4; codecs=avc1',
+        videoBitsPerSecond: 4000000
+      });
+    }catch{
+      // Se não aceitar avc1, cai no seguro e indica MP4
+      try{
+        mediaRecorder = new MediaRecorder(stream, {mimeType:'video/mp4'});
+      }catch{
+        alert('⚠️ Gravação MP4 não suportada — mantém só foto por enquanto');
+        return;
+      }
+    }
 
-stopRec.onclick=stopRecAll;
-document.getElementById('theme-toggle').onclick=()=>tm.toggle();
+    mediaRecorder.ondataavailable = e=>{if(e.data.size>0) blocos.push(e.data);};
+    mediaRecorder.onstop = ()=>{
+      const blob = new Blob(blocos, {type:'video/mp4'});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href=url; link.download='video_moldura.mp4'; link.click();
+      URL.revokeObjectURL(url);
+    };
+    mediaRecorder.start(1000);
+    gravando=true;
+    document.getElementById('btnGravar').textContent='⏹️ Parar';
+    document.getElementById('btnGravar').classList.add('gravando');
+  }else{
+    mediaRecorder.stop(); gravando=false;
+    document.getElementById('btnGravar').textContent='🎥 Gravar';
+    document.getElementById('btnGravar').classList.remove('gravando');
+    desenharQuadro();
+  }
+}
 
-window.addEventListener('load',startCam);
+window.addEventListener('load', ()=>iniciarCamera(camAtual));
 </script>
+
 </body>
 </html>
