@@ -1,40 +1,20 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<title>Moldura — Vídeo MP4 Correto</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Moldura — Vídeo</title>
 <style>
+/* seu CSS (mantive o original) */
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:Arial,sans-serif}
-
-#camera{
-  position:fixed;top:0;left:0;
-  width:100vw;height:100vh;
-  object-fit:cover;
-  transform:scaleX(-1);
-  image-rendering:high-quality;
-  filter:brightness(1.05) contrast(1.08) saturate(1.1)
-}
+#camera{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;transform:scaleX(-1);image-rendering:high-quality;filter:brightness(1.05) contrast(1.08) saturate(1.1)}
 #camera.traseira{transform:none}
-
-#moldura{
-  position:fixed;top:0;left:0;
-  width:100vw;height:100vh;
-  z-index:10;pointer-events:none
-}
-
-.botoes{
-  position:fixed;bottom:5%;left:0;
-  width:100%;text-align:center;z-index:20
-}
-button{
-  padding:12px 20px;font-size:15px;border:none;border-radius:30px;
-  background:#ff69b4;color:#fff;margin:0 6px;font-weight:bold
-}
+#moldura{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:10;pointer-events:none}
+.botoes{position:fixed;bottom:5%;left:0;width:100%;text-align:center;z-index:20}
+button{padding:12px 20px;font-size:15px;border:none;border-radius:30px;background:#ff69b4;color:#fff;margin:0 6px;font-weight:bold}
 button.gravando{background:#e53935;animation:piscar 1.2s infinite}
 @keyframes piscar{0%{opacity:1}50%{opacity:.7}100%{opacity:1}}
-
 #canal, #foto{display:none}
 </style>
 </head>
@@ -59,41 +39,54 @@ const ctxCanal = canal.getContext('2d', {willReadFrequently:true});
 const canvasFoto = document.getElementById('foto');
 const ctxFoto = canvasFoto.getContext('2d', {willReadFrequently:true});
 const btnCamera = document.getElementById('btnCamera');
+const btnGravar = document.getElementById('btnGravar');
 
 let camAtual = 'user';
 let gravando = false, mediaRecorder = null, blocos = [];
+let originalStream = null; // guarda o stream com áudio da câmera
+let desenhoReq = null;
 
 function iniciarCamera(tipo){
-  if(camera.srcObject){
-    camera.srcObject.getTracks().forEach(trilha=>trilha.stop());
-    camera.srcObject=null;
+  // para streams anteriores
+  if(originalStream){
+    originalStream.getTracks().forEach(t => t.stop());
+    originalStream = null;
   }
   navigator.mediaDevices.getUserMedia({video:{facingMode:tipo}, audio:true})
   .then(stream=>{
-    camera.srcObject = stream; camera.play();
+    originalStream = stream;            // <-- guardamos o stream original (tem áudio)
+    camera.srcObject = stream;
+    camera.play();
     camera.classList.toggle('traseira', tipo==='environment');
     btnCamera.textContent = tipo==='user' ? '📷 Traseira' : '📷 Frontal';
-    desenharQuadro();
+    // começa a animação de desenho (sempre)
+    if(!desenhoReq) desenharQuadro();
   })
-  .catch(()=>alert('⚠️ Permita câmera + microfone!'));
+  .catch(err=>{
+    console.error(err);
+    alert('⚠️ Permita câmera + microfone! (ou dispositivo não disponível)');
+  });
 }
 
 function desenharQuadro(){
-  if(!camera.srcObject) return;
-  ctxCanal.clearRect(0,0,1080,1920);
-  ctxCanal.drawImage(camera,0,0,1080,1920);
+  // continua sempre desenhando enquanto existir stream
+  if(camera.srcObject){
+    ctxCanal.clearRect(0,0,canal.width,canal.height);
+    // desenha vídeo no canvas (ajuste se precisar de escala/posição)
+    ctxCanal.drawImage(camera,0,0,canal.width,canal.height);
 
-  // Suavização suave
-  const dados = ctxCanal.getImageData(0,0,1080,1920);
-  const p = dados.data;
-  for(let i=0;i<p.length;i+=4){
-    p[i]   = Math.min(255, p[i] * 1.06);
-    p[i+1] = Math.min(255, p[i+1] * 1.05);
-    p[i+2] = Math.min(255, p[i+2] * 1.04);
+    // Exemplo simples de "grading" (evite processamento pesado em cada frame)
+    const dados = ctxCanal.getImageData(0,0,canal.width,canal.height);
+    const p = dados.data;
+    for(let i=0;i<p.length;i+=4){
+      p[i]   = Math.min(255, p[i] * 1.06);
+      p[i+1] = Math.min(255, p[i+1] * 1.05);
+      p[i+2] = Math.min(255, p[i+2] * 1.04);
+    }
+    ctxCanal.putImageData(dados,0,0);
+    ctxCanal.drawImage(document.getElementById('moldura'),0,0,canal.width,canal.height);
   }
-  ctxCanal.putImageData(dados,0,0);
-  ctxCanal.drawImage(document.getElementById('moldura'),0,0,1080,1920);
-  if(!gravando) requestAnimationFrame(desenharQuadro);
+  desenhoReq = requestAnimationFrame(desenharQuadro);
 }
 
 function alternarCamera(){
@@ -103,56 +96,90 @@ function alternarCamera(){
 
 function tirarFoto(){
   if(!camera.srcObject) return;
-  ctxFoto.drawImage(canal,0,0);
+  // copia do canvas principal para o canvas de foto (mantém moldura)
+  ctxFoto.clearRect(0,0,canvasFoto.width,canvasFoto.height);
+  ctxFoto.drawImage(canal,0,0,canvasFoto.width,canvasFoto.height);
   const link=document.createElement('a');
   link.download='foto_moldura.png';
   link.href=canvasFoto.toDataURL('image/png',0.95);
   link.click();
 }
 
-// ✅ GRAVAÇÃO COM FORMATO MP4 / H.264 — UNIVERSAL
+// utilitário para encontrar um mimeType suportado (lista de prioridades)
+function escolherMimeSuportado(opcoes){
+  for(const m of opcoes){
+    if(MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+
 function alternarGravacao(){
-  if(!camera.srcObject) return;
+  if(!originalStream) { alert('Câmera/microfone não prontos'); return; }
+
   if(!gravando){
-    blocos=[];
-    const stream = canal.captureStream(24);
-    try{
-      // Formato mais compatível com MP4
-      mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/mp4; codecs=avc1',
-        videoBitsPerSecond: 4000000
-      });
-    }catch{
-      // Se não aceitar avc1, cai no seguro e indica MP4
-      try{
-        mediaRecorder = new MediaRecorder(stream, {mimeType:'video/mp4'});
-      }catch{
-        alert('⚠️ Gravação MP4 não suportada — mantém só foto por enquanto');
-        return;
-      }
+    blocos = [];
+
+    // pega vídeo do canvas e adiciona faixas de áudio do originalStream
+    const canvasStream = canal.captureStream(30); // fps desejado
+    // adiciona faixas de áudio (microfone)
+    originalStream.getAudioTracks().forEach(t => canvasStream.addTrack(t));
+
+    // escolher mimeType: prioridade para webm (mais compatível)
+    const mime = escolherMimeSuportado([
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+      'video/mp4' // pode falhar; poucos browsers suportam MediaRecorder -> mp4
+    ]);
+    if(!mime){
+      alert('Seu browser não suporta MediaRecorder com tipos conhecidos. Tente um Chrome/Firefox/Safari atual.');
+      return;
     }
 
-    mediaRecorder.ondataavailable = e=>{if(e.data.size>0) blocos.push(e.data);};
-    mediaRecorder.onstop = ()=>{
-      const blob = new Blob(blocos, {type:'video/mp4'});
+    try{
+      mediaRecorder = new MediaRecorder(canvasStream, {
+        mimeType: mime,
+        videoBitsPerSecond: 3_000_000
+      });
+    }catch(err){
+      console.error('Erro criando MediaRecorder:', err);
+      alert('Falha ao iniciar gravação.');
+      return;
+    }
+
+    mediaRecorder.ondataavailable = e => { if(e.data && e.data.size>0) blocos.push(e.data); };
+    mediaRecorder.onstop = () => {
+      const tipoBlob = blocos.length ? blocos[0].type : mime;
+      const blob = new Blob(blocos, {type: tipoBlob});
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href=url; link.download='video_moldura.mp4'; link.click();
-      URL.revokeObjectURL(url);
+      link.href = url;
+      // extensão baseada no mime
+      const ext = tipoBlob.includes('webm') ? 'webm' : (tipoBlob.includes('mp4') ? 'mp4' : 'bin');
+      link.download = `video_moldura.${ext}`;
+      link.click();
+      // libera
+      setTimeout(()=>URL.revokeObjectURL(url), 10000);
     };
-    mediaRecorder.start(1000);
-    gravando=true;
-    document.getElementById('btnGravar').textContent='⏹️ Parar';
-    document.getElementById('btnGravar').classList.add('gravando');
+
+    mediaRecorder.start(1000); // blobs de 1s (opcional)
+    gravando = true;
+    btnGravar.textContent = '⏹️ Parar';
+    btnGravar.classList.add('gravando');
   }else{
-    mediaRecorder.stop(); gravando=false;
-    document.getElementById('btnGravar').textContent='🎥 Gravar';
-    document.getElementById('btnGravar').classList.remove('gravando');
-    desenharQuadro();
+    // para a gravação (onstop irá gerar o arquivo)
+    mediaRecorder.stop();
+    gravando = false;
+    btnGravar.textContent = '🎥 Gravar';
+    btnGravar.classList.remove('gravando');
   }
 }
 
 window.addEventListener('load', ()=>iniciarCamera(camAtual));
+window.addEventListener('beforeunload', ()=>{
+  if(originalStream) originalStream.getTracks().forEach(t=>t.stop());
+  if(desenhoReq) cancelAnimationFrame(desenhoReq);
+});
 </script>
 
 </body>
