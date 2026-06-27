@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<title>Moldura — Vídeo Correto</title>
+<title>Moldura — Vídeo MP4 Correto</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:Arial,sans-serif}
@@ -41,7 +41,6 @@ button.gravando{background:#e53935;animation:piscar 1.2s infinite}
 <body>
 
 <video id="camera" autoplay playsinline muted></video>
-<!-- CANAL COM TAMANHO FIXO SEGURO: 1080×1920 -->
 <canvas id="canal" width="1080" height="1920"></canvas>
 <img id="moldura" src="moldura.png" alt="Moldura">
 
@@ -64,7 +63,6 @@ const btnCamera = document.getElementById('btnCamera');
 let camAtual = 'user';
 let gravando = false, mediaRecorder = null, blocos = [];
 
-// ✅ CÂMERA SIMPLES E ESTÁVEL
 function iniciarCamera(tipo){
   if(camera.srcObject){
     camera.srcObject.getTracks().forEach(trilha=>trilha.stop());
@@ -77,16 +75,15 @@ function iniciarCamera(tipo){
     btnCamera.textContent = tipo==='user' ? '📷 Traseira' : '📷 Frontal';
     desenharQuadro();
   })
-  .catch(()=>alert('⚠️ Permita câmera + microfone e recarregue!'));
+  .catch(()=>alert('⚠️ Permita câmera + microfone!'));
 }
 
 function desenharQuadro(){
   if(!camera.srcObject) return;
   ctxCanal.clearRect(0,0,1080,1920);
-  // ✅ SEM CÁLCULOS COMPLEXOS — AJUSTE DIRETO PARA O CANAL
   ctxCanal.drawImage(camera,0,0,1080,1920);
 
-  // Suavização leve, sem travar
+  // Suavização suave
   const dados = ctxCanal.getImageData(0,0,1080,1920);
   const p = dados.data;
   for(let i=0;i<p.length;i+=4){
@@ -113,22 +110,34 @@ function tirarFoto(){
   link.click();
 }
 
-// ✅ GRAVAÇÃO SEGURA: APENAS VP8 + 24fps = FUNCIONA EM TUDO
+// ✅ GRAVAÇÃO COM FORMATO MP4 / H.264 — UNIVERSAL
 function alternarGravacao(){
   if(!camera.srcObject) return;
   if(!gravando){
     blocos=[];
     const stream = canal.captureStream(24);
     try{
-      mediaRecorder = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp8'});
-    }catch{ alert('⚠️ Gravação não suportada neste aparelho'); return; }
+      // Formato mais compatível com MP4
+      mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/mp4; codecs=avc1',
+        videoBitsPerSecond: 4000000
+      });
+    }catch{
+      // Se não aceitar avc1, cai no seguro e indica MP4
+      try{
+        mediaRecorder = new MediaRecorder(stream, {mimeType:'video/mp4'});
+      }catch{
+        alert('⚠️ Gravação MP4 não suportada — mantém só foto por enquanto');
+        return;
+      }
+    }
 
     mediaRecorder.ondataavailable = e=>{if(e.data.size>0) blocos.push(e.data);};
     mediaRecorder.onstop = ()=>{
-      const blob = new Blob(blocos, {type:'video/webm'});
+      const blob = new Blob(blocos, {type:'video/mp4'});
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href=url; link.download='video_moldura.webm'; link.click();
+      link.href=url; link.download='video_moldura.mp4'; link.click();
       URL.revokeObjectURL(url);
     };
     mediaRecorder.start(1000);
